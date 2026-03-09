@@ -52,37 +52,40 @@ public class SensorListener extends Service implements SensorEventListener {
 	private static long lastSaveTime;
 
 	private static int notificationIconId = 0;
-	
+
 	private final BroadcastReceiver shutdownReceiver = new ShutdownReceiver();
-	  
+
 	@Override
 	public void onAccuracyChanged(final Sensor sensor, int accuracy) {
 		Log.d("STEPPER", "SensorListener.onAccuracyChanged " + accuracy);
 	}
 
+	private long lastUpdateTime = 0;
+
 	@Override
 	public void onSensorChanged(final SensorEvent event) {
 		Log.v("STEPPER", "SensorListener.onSensorChanged " + event.values[0]);
-		currentIndex = (long) event.values[0];	
-		if (!Util.isSameDay(System.currentTimeMillis(), lastSaveTime, timeZone)) {
-			todaySavedSteps = 0;
+		currentIndex = (long) event.values[0];
+		long now = System.currentTimeMillis();
+
+		boolean dayChanged = !Util.isSameDay(now, lastSaveTime, timeZone);
+		boolean limitsReached = (currentIndex > lastSavedIndex + SAVE_OFFSET_STEPS)
+				|| (currentIndex > 0 && now > lastSaveTime + SAVE_OFFSET_TIME_MS);
+
+		if (dayChanged || limitsReached) {
+			if (dayChanged)
+				todaySavedSteps = 0;
 			try {
-			  StepperPlugin.updateUI(todaySteps());
-			  showNotification();
+				StepperPlugin.updateUI(todaySteps());
+				showNotification();
 			} finally {
 				saveCurrentIndex(getApplicationContext());
 			}
-		} else if (currentIndex > lastSavedIndex + SAVE_OFFSET_STEPS
-				|| (currentIndex > 0 && System.currentTimeMillis() > lastSaveTime + SAVE_OFFSET_TIME_MS)) {
-			try {
-			  StepperPlugin.updateUI(todaySteps());
-			  showNotification();
-			} finally {
-				saveCurrentIndex(getApplicationContext());
-			}
-		} else {
+			lastUpdateTime = now;
+		} else if (now - lastUpdateTime > 2000) { // Debouncer: max update every 2 seconds
 			StepperPlugin.updateUI(todaySteps());
 			showNotification();
+			lastUpdateTime = now;
 		}
 	}
 
@@ -90,7 +93,7 @@ public class SensorListener extends Service implements SensorEventListener {
 		int steps = todaySavedSteps;
 		int diff = (int) (currentIndex - lastSavedIndex);
 		if (lastSavedIndex != -1l && diff > 0 && diff < 10000) {
-		  steps += diff;
+			steps += diff;
 		}
 		return steps;
 	}
@@ -136,7 +139,7 @@ public class SensorListener extends Service implements SensorEventListener {
 	private void showNotification() {
 		if (getSharedPreferences("pedometer", Context.MODE_PRIVATE).getBoolean("notification", true)) {
 			if (Build.VERSION.SDK_INT >= 34) {
-				startForeground(NOTIFICATION_ID, getNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH);
+				startForeground(NOTIFICATION_ID, getNotification(), 256); // 256 = FOREGROUND_SERVICE_TYPE_HEALTH
 			} else if (Build.VERSION.SDK_INT >= 26) {
 				startForeground(NOTIFICATION_ID, getNotification());
 			} else {
@@ -163,7 +166,7 @@ public class SensorListener extends Service implements SensorEventListener {
 		reRegisterSensor();
 		registerBroadcastReceiver();
 		showNotification();
-		
+
 		// Load history from db
 		Database db = Database.getInstance(getApplicationContext());
 		todaySavedSteps = db.getSteps(Util.getToday(timeZone), System.currentTimeMillis());
@@ -177,7 +180,8 @@ public class SensorListener extends Service implements SensorEventListener {
 				+ ", lastSavedIndex=" + lastSavedIndex);
 
 		// restart service every fifteen minutes to save the current step count
-		long nextUpdate = Math.min(Util.getNextHour(timeZone), System.currentTimeMillis() + AlarmManager.INTERVAL_FIFTEEN_MINUTES);
+		long nextUpdate = Math.min(Util.getNextHour(timeZone),
+				System.currentTimeMillis() + AlarmManager.INTERVAL_FIFTEEN_MINUTES);
 		scheduleStart(nextUpdate, 2);
 
 		return START_STICKY;
@@ -214,8 +218,8 @@ public class SensorListener extends Service implements SensorEventListener {
 		Log.i("STEPPER", "SensorListener.onTaskRemoved");
 		// Restart service in 2000 ms
 		try {
-		  scheduleStart(System.currentTimeMillis() + 2000, 3);
-		} catch(Exception e) {
+			scheduleStart(System.currentTimeMillis() + 2000, 3);
+		} catch (Exception e) {
 			Log.e("STEPPER", "scheduleStart FAILED");
 		}
 		saveCurrentIndex(getApplicationContext());
