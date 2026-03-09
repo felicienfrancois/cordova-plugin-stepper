@@ -66,34 +66,50 @@ public class StepperPlugin extends CordovaPlugin {
 	 *                        JavaScript.
 	 * @return whether the action was valid.
 	 */
-	public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
+	public boolean execute(final String action, final JSONArray args, final CallbackContext callbackContext)
+			throws JSONException {
 		Log.i("STEPPER", "StepperPlugin.execute(\"" + action + "\")");
-		this.callbackContext = callbackContext;
-		if (action.equals("isStepCountingAvailable")) {
-			isStepCountingAvailable();
-		} else if (action.equals("requestPermission")) {
-			requestPermission();
-		} else if (action.equals("disableBatteryOptimizations")) {
-			disableBatteryOptimizations();
-		} else if (action.equals("startStepperUpdates")) {
-			updateCallback = callbackContext;
-			start(args);
-		} else if (action.equals("stopStepperUpdates")) {
-			stop(args);
-		} else if (action.equals("setNotificationLocalizedStrings")) {
-			setNotificationLocalizedStrings(args);
-			win();
-		} else if (action.equals("setGoal")) {
-			setGoal(args);
-			win();
-		} else if (action.equals("getStepsByPeriod")) {
-			getStepsByPeriod(args);
-		} else if (action.equals("getLastEntries")) {
-			getLastEntries(args);
-		} else {
-			return false;
+
+		if (action.equals("isStepCountingAvailable") || action.equals("requestPermission")
+				|| action.equals("disableBatteryOptimizations")
+				|| action.equals("startStepperUpdates") || action.equals("stopStepperUpdates")
+				|| action.equals("setNotificationLocalizedStrings")
+				|| action.equals("setGoal") || action.equals("getStepsByPeriod") || action.equals("getLastEntries")) {
+
+			cordova.getThreadPool().execute(new Runnable() {
+				public void run() {
+					StepperPlugin.this.callbackContext = callbackContext;
+					try {
+						if (action.equals("isStepCountingAvailable")) {
+							isStepCountingAvailable();
+						} else if (action.equals("requestPermission")) {
+							requestPermission();
+						} else if (action.equals("disableBatteryOptimizations")) {
+							disableBatteryOptimizations();
+						} else if (action.equals("startStepperUpdates")) {
+							updateCallback = callbackContext;
+							start(args);
+						} else if (action.equals("stopStepperUpdates")) {
+							stop(args);
+						} else if (action.equals("setNotificationLocalizedStrings")) {
+							setNotificationLocalizedStrings(args);
+							win();
+						} else if (action.equals("setGoal")) {
+							setGoal(args);
+							win();
+						} else if (action.equals("getStepsByPeriod")) {
+							getStepsByPeriod(args);
+						} else if (action.equals("getLastEntries")) {
+							getLastEntries(args);
+						}
+					} catch (Exception e) {
+						fail(0, e.getMessage());
+					}
+				}
+			});
+			return true;
 		}
-		return true;
+		return false;
 	}
 
 	/**
@@ -199,13 +215,13 @@ public class StepperPlugin extends CordovaPlugin {
 		Database db = Database.getInstance(getActivity());
 		int steps = db.getSteps(startdate, endate);
 		db.close();
-		
+
 		if (startdate <= System.currentTimeMillis() && endate >= System.currentTimeMillis()) {
 			int diff = (int) (SensorListener.currentIndex - SensorListener.lastSavedIndex);
 			if (SensorListener.lastSavedIndex != -1l && diff > 0 && diff < 10000) {
-	          steps += diff;
+				steps += diff;
 			}
-	    }
+		}
 
 		JSONObject joresult = new JSONObject();
 		try {
@@ -280,15 +296,16 @@ public class StepperPlugin extends CordovaPlugin {
 
 	private void requestPermission() {
 		List<String> perms = new ArrayList<>();
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
 			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
 		}
 		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
 			perms.add("android.permission.POST_NOTIFICATIONS");
 		}
-		
+
 		if (!perms.isEmpty()) {
-			cordova.requestPermissions(this, REQUEST_MAN_PERMS, perms.toArray(new String[0]));
+			cordova.requestPermissions(StepperPlugin.this, REQUEST_MAN_PERMS, perms.toArray(new String[0]));
 			answerLater();
 		} else {
 			win(true);
@@ -378,13 +395,14 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 
 		List<String> perms = new ArrayList<>();
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
 			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
 		}
 		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
 			perms.add("android.permission.POST_NOTIFICATIONS");
 		}
-		
+
 		if (!perms.isEmpty()) {
 			cordova.requestPermissions(this, REQUEST_DYN_PERMS, perms.toArray(new String[0]));
 			answerLater();
@@ -430,7 +448,8 @@ public class StepperPlugin extends CordovaPlugin {
 	}
 
 	public static void updateUI(int todaySteps) {
-		Log.v("STEPPER", "StepperPlugin.updateUI updateCallback=" + (updateCallback != null) + " todaySteps=" + todaySteps);
+		Log.v("STEPPER",
+				"StepperPlugin.updateUI updateCallback=" + (updateCallback != null) + " todaySteps=" + todaySteps);
 		if (updateCallback != null) {
 			JSONObject result = new JSONObject();
 			try {
