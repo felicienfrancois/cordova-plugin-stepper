@@ -3,6 +3,7 @@ package org.apache.cordova.stepper;
 import android.annotation.SuppressLint;
 import java.text.NumberFormat;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.time.OffsetDateTime;
 
@@ -274,12 +275,20 @@ public class StepperPlugin extends CordovaPlugin {
 	@Override
 	public void onReset() {
 		Log.i("STEPPER", "StepperPlugin.onReset");
+		StepperPlugin.updateCallback = null;
 	}
 
 	private void requestPermission() {
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
-			cordova.requestPermission(this, REQUEST_MAN_PERMS, Manifest.permission.ACTIVITY_RECOGNITION);
+		List<String> perms = new ArrayList<>();
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
+		}
+		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
+			perms.add("android.permission.POST_NOTIFICATIONS");
+		}
+		
+		if (!perms.isEmpty()) {
+			cordova.requestPermissions(this, REQUEST_MAN_PERMS, perms.toArray(new String[0]));
 			answerLater();
 		} else {
 			win(true);
@@ -368,9 +377,16 @@ public class StepperPlugin extends CordovaPlugin {
 		} catch (JSONException e) {
 		}
 
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
-			cordova.requestPermission(this, REQUEST_DYN_PERMS, Manifest.permission.ACTIVITY_RECOGNITION);
+		List<String> perms = new ArrayList<>();
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
+		}
+		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
+			perms.add("android.permission.POST_NOTIFICATIONS");
+		}
+		
+		if (!perms.isEmpty()) {
+			cordova.requestPermissions(this, REQUEST_DYN_PERMS, perms.toArray(new String[0]));
 			answerLater();
 			return;
 		}
