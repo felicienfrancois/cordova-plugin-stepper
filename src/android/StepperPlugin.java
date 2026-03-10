@@ -54,7 +54,8 @@ public class StepperPlugin extends CordovaPlugin {
 
 	public final static NumberFormat formatter = NumberFormat.getInstance(Locale.getDefault());
 
-	private CallbackContext callbackContext; // Keeps track of the JS callback context.
+	// temporary callback used for async permission/activity results
+	private CallbackContext pendingCallbackContext;
 	private static CallbackContext updateCallback; // Keeps track of the persistent callback.
 
 	/**
@@ -76,34 +77,34 @@ public class StepperPlugin extends CordovaPlugin {
 				|| action.equals("setNotificationLocalizedStrings")
 				|| action.equals("setGoal") || action.equals("getStepsByPeriod") || action.equals("getLastEntries")) {
 
+			final CallbackContext cc = callbackContext; // capture for runnable
 			cordova.getThreadPool().execute(new Runnable() {
 				public void run() {
-					StepperPlugin.this.callbackContext = callbackContext;
 					try {
 						if (action.equals("isStepCountingAvailable")) {
-							isStepCountingAvailable();
+							isStepCountingAvailable(cc);
 						} else if (action.equals("requestPermission")) {
-							requestPermission();
+							requestPermission(cc);
 						} else if (action.equals("disableBatteryOptimizations")) {
-							disableBatteryOptimizations();
+							disableBatteryOptimizations(cc);
 						} else if (action.equals("startStepperUpdates")) {
-							updateCallback = callbackContext;
-							start(args);
+							updateCallback = cc;
+							start(args, cc);
 						} else if (action.equals("stopStepperUpdates")) {
-							stop(args);
+							stop(args, cc);
 						} else if (action.equals("setNotificationLocalizedStrings")) {
 							setNotificationLocalizedStrings(args);
-							win();
+							win(cc);
 						} else if (action.equals("setGoal")) {
 							setGoal(args);
-							win();
+							win(cc);
 						} else if (action.equals("getStepsByPeriod")) {
-							getStepsByPeriod(args);
+							getStepsByPeriod(args, cc);
 						} else if (action.equals("getLastEntries")) {
-							getLastEntries(args);
+							getLastEntries(args, cc);
 						}
 					} catch (Exception e) {
-						fail(0, e.getMessage());
+						fail(cc, 0, e.getMessage());
 					}
 				}
 			});
@@ -117,36 +118,41 @@ public class StepperPlugin extends CordovaPlugin {
 	 * permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS to function.
 	 */
 	@SuppressLint("BatteryLife")
-	private void disableBatteryOptimizations() {
+	private void disableBatteryOptimizations(CallbackContext cc) {
 		try {
 			Intent intent = new Intent();
 			String pkgName = getActivity().getPackageName();
 			PowerManager pm = (PowerManager) getActivity().getSystemService(POWER_SERVICE);
 
 			if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-				this.fail(Status.ERROR_BATTERY_OPTIMIZATION, "Permission not relevant on this device");
+				fail(cc, Status.ERROR_BATTERY_OPTIMIZATION, "Permission not relevant on this device");
 				return;
 			}
 
 			if (pm.isIgnoringBatteryOptimizations(pkgName)) {
-				win(true);
+				win(cc, true);
 				return;
 			}
 
+			// remember for onActivityResult
+			pendingCallbackContext = cc;
 			intent.setAction(ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
 			intent.setData(Uri.parse("package:" + pkgName));
 
 			cordova.startActivityForResult(this, intent, REQUEST_BATTERY_PERMS);
-			answerLater();
+			answerLater(cc);
 		} catch (Exception e) {
-			this.fail(Status.ERROR_BATTERY_OPTIMIZATION, e.getMessage());
+			fail(cc, Status.ERROR_BATTERY_OPTIMIZATION, e.getMessage());
 		}
 	}
 
 	@Override
 	public void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
 		if (requestCode == REQUEST_BATTERY_PERMS) {
-			win(resultCode == cordova.getActivity().RESULT_OK);
+			if (pendingCallbackContext != null) {
+				win(pendingCallbackContext, resultCode == cordova.getActivity().RESULT_OK);
+				pendingCallbackContext = null;
+			}
 			return;
 		}
 		// Handle other results if exists.
@@ -201,7 +207,7 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 	}
 
-	private void getStepsByPeriod(JSONArray args) {
+	private void getStepsByPeriod(JSONArray args, CallbackContext cc) {
 		long startdate = 0;
 		long endate = 0;
 		try {
@@ -230,10 +236,10 @@ public class StepperPlugin extends CordovaPlugin {
 			e.printStackTrace();
 			return;
 		}
-		win(joresult);
+		win(cc, joresult);
 	}
 
-	private void getLastEntries(JSONArray args) {
+	private void getLastEntries(JSONArray args, CallbackContext cc) {
 		int num = 0;
 		try {
 			num = args.getInt(0);
@@ -264,7 +270,7 @@ public class StepperPlugin extends CordovaPlugin {
 			e.printStackTrace();
 			return;
 		}
-		win(joresult);
+		win(cc, joresult);
 	}
 
 	public void onStart() {
@@ -294,7 +300,7 @@ public class StepperPlugin extends CordovaPlugin {
 		StepperPlugin.updateCallback = null;
 	}
 
-	private void requestPermission() {
+	private void requestPermission(CallbackContext cc) {
 		List<String> perms = new ArrayList<>();
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
@@ -305,20 +311,21 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 
 		if (!perms.isEmpty()) {
+			pendingCallbackContext = cc;
 			cordova.requestPermissions(StepperPlugin.this, REQUEST_MAN_PERMS, perms.toArray(new String[0]));
-			answerLater();
+			answerLater(cc);
 		} else {
-			win(true);
+			win(cc, true);
 		}
 	}
 
-	private void isStepCountingAvailable() {
+	private void isStepCountingAvailable(CallbackContext cc) {
 		if (((SensorManager) getActivity().getSystemService(Context.SENSOR_SERVICE))
 				.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null) {
-			this.win(true);
+			win(cc, true);
 		} else {
-			this.status = Status.ERROR_NO_SENSOR_FOUND;
-			this.win(false);
+			status = Status.ERROR_NO_SENSOR_FOUND;
+			win(cc, false);
 		}
 	}
 
@@ -327,6 +334,8 @@ public class StepperPlugin extends CordovaPlugin {
 	public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults)
 			throws JSONException {
 		if (requestCode == REQUEST_DYN_PERMS || requestCode == REQUEST_MAN_PERMS) {
+			CallbackContext cc = pendingCallbackContext;
+			pendingCallbackContext = null;
 			for (int i = 0; i < grantResults.length; i++) {
 				if (grantResults[i] == PackageManager.PERMISSION_DENIED) {
 					String errmsg = "Permission denied ";
@@ -334,21 +343,26 @@ public class StepperPlugin extends CordovaPlugin {
 						errmsg += " " + perm;
 					}
 					this.status = Status.ERROR_NO_PERMISSION;
-					this.fail(Status.ERROR_NO_PERMISSION, "Permission denied: " + permissions[i]);
+					if (cc != null) {
+						fail(cc, Status.ERROR_NO_PERMISSION, "Permission denied: " + permissions[i]);
+					}
 					return;
 				}
 			}
 			// all dynamic permissions accepted!
 			Log.i("STEPPER", "Dynamic permissions accepted");
 			if (requestCode == REQUEST_MAN_PERMS) {
-				win(true);
+				if (cc != null) {
+					win(cc, true);
+				}
 			} else {
+				// dynamic permissions granted, continue starting service
 				start();
 			}
 		}
 	}
 
-	private void start(JSONArray args) throws JSONException {
+	private void start(JSONArray args, CallbackContext cc) throws JSONException {
 		final JSONObject options = args.getJSONObject(0);
 
 		SharedPreferences prefs = getActivity().getSharedPreferences("pedometer", Context.MODE_PRIVATE);
@@ -404,8 +418,10 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 
 		if (!perms.isEmpty()) {
+			// dynamic permissions required - keep callback until result
+			pendingCallbackContext = cc;
 			cordova.requestPermissions(this, REQUEST_DYN_PERMS, perms.toArray(new String[0]));
-			answerLater();
+			answerLater(cc);
 			return;
 		}
 
@@ -423,7 +439,7 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 	}
 
-	private void stop(JSONArray args) {
+	private void stop(JSONArray args, CallbackContext cc) {
 		Log.i("STEPPER", "StepperPlugin.stop");
 		boolean clearDatabase = false;
 		try {
@@ -444,7 +460,7 @@ public class StepperPlugin extends CordovaPlugin {
 		getActivity().stopService(new Intent(getActivity(), SensorListener.class));
 		status = Status.STOPPED;
 
-		win();
+		win(cc);
 	}
 
 	public static void updateUI(int todaySteps) {
@@ -464,33 +480,34 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 	}
 
-	private void answerLater() {
+	/* helpers which take an explicit context rather than using a shared field */
+	private void answerLater(CallbackContext cc) {
 		PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
 		r.setKeepCallback(true);
-		callbackContext.sendPluginResult(r);
+		cc.sendPluginResult(r);
 	}
 
-	private void win(JSONObject message) {
+	private void win(CallbackContext cc, JSONObject message) {
 		PluginResult result;
 		if (message != null) {
 			result = new PluginResult(PluginResult.Status.OK, message);
 		} else {
 			result = new PluginResult(PluginResult.Status.OK);
 		}
-		callbackContext.sendPluginResult(result);
+		cc.sendPluginResult(result);
 	}
 
-	private void win(boolean success) {
+	private void win(CallbackContext cc, boolean success) {
 		PluginResult result = new PluginResult(PluginResult.Status.OK, success);
-		callbackContext.sendPluginResult(result);
+		cc.sendPluginResult(result);
 	}
 
-	private void win() {
+	private void win(CallbackContext cc) {
 		PluginResult result = new PluginResult(PluginResult.Status.OK);
-		callbackContext.sendPluginResult(result);
+		cc.sendPluginResult(result);
 	}
 
-	private void fail(int code, String message) {
+	private void fail(CallbackContext cc, int code, String message) {
 		// Error object
 		JSONObject errorObj = new JSONObject();
 		try {
@@ -500,7 +517,7 @@ public class StepperPlugin extends CordovaPlugin {
 			e.printStackTrace();
 		}
 		PluginResult err = new PluginResult(PluginResult.Status.ERROR, errorObj);
-		callbackContext.sendPluginResult(err);
+		cc.sendPluginResult(err);
 	}
 
 	private Activity getActivity() {
