@@ -87,6 +87,11 @@
 - (void) getStepsByPeriod:(CDVInvokedUrlCommand*)command;
 {
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    // A fixed-format formatter must be locale/calendar independent. Without this, dateFromString
+    // returns nil on devices set to 12-hour time or a non-Gregorian calendar, and the nil date
+    // makes CMPedometer throw "Invalid parameter not satisfying: start", crashing the app.
+    dateFormatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    dateFormatter.calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
     [dateFormatter setDateFormat:@"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"];
     [dateFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 
@@ -94,6 +99,22 @@
     NSDate* endDate = [dateFormatter dateFromString:[command.arguments objectAtIndex:1]];
 
     __block CDVPluginResult* pluginResult = nil;
+
+    if (startDate == nil) {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Invalid start date"];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        return;
+    }
+    // CMPedometer rejects dates in the future; clamp the end of the range to now.
+    NSDate* now = [NSDate date];
+    if (endDate == nil || [endDate compare:now] == NSOrderedDescending) {
+        endDate = now;
+    }
+    if ([startDate compare:endDate] == NSOrderedDescending) {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Invalid date range"];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        return;
+    }
 
     [self.pedometer queryPedometerDataFromDate:startDate toDate:endDate withHandler:^(CMPedometerData *pedometerData, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
