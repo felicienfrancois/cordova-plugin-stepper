@@ -64,6 +64,30 @@ stepper.disableBatteryOptimizations().then((result) => {
 });
 ```
 
+#### isVendorBatteryRestricted () => Promise [Android only]
+Resolves `true` on MIUI/HyperOS (Xiaomi/Redmi/POCO) devices, where the standard `disableBatteryOptimizations`
+dialog is replaced by an obscure multi-mode battery picker and the Doze whitelist alone does not prevent the OS
+from freezing background work. Use it to show your own yes/no popup and route only these devices to the vendor
+screens below. Resolves `false` on iOS and stock Android.
+
+#### requestVendorAutostart () => Promise [Android only]
+Opens the vendor "Autostart" management screen (MIUI/HyperOS), falling back to the app details settings when the
+screen is unavailable. Resolves `true` once the user returns (the resulting state cannot be read back).
+
+#### openVendorBatterySettings () => Promise [Android only]
+Opens the vendor per-app battery screen (MIUI/HyperOS), falling back to the app details settings. Resolves `true`
+once the user returns.
+
+```js
+if (await stepper.isVendorBatteryRestricted()) {
+  // show your own translated yes/no popup, then on "yes":
+  await stepper.requestVendorAutostart();
+  await stepper.openVendorBatterySettings();
+} else {
+  await stepper.disableBatteryOptimizations();
+}
+```
+
 #### startStepperUpdates (options, onStepUpdate, onError)
 The onStepUpdate handler is called once during the first call and then called from the background thread whenever data is available.
 

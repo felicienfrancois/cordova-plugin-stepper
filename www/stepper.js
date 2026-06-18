@@ -46,6 +46,61 @@ Stepper.prototype.disableBatteryOptimizations = function (onSuccess, onError) {
   return promise;
 };
 
+// Android - Documented
+// Resolves true on MIUI/HyperOS, where the AOSP battery dialog is replaced by an obscure multi-mode picker and the
+// app must instead route the user through the vendor Autostart / battery screens.
+Stepper.prototype.isVendorBatteryRestricted = function (onSuccess, onError) {
+  let promise = new Promise(function (resolve) {
+    if (!/^android|amazon/i.test(device.platform)) {
+      return resolve(false);
+    }
+    exec(
+      resolve,
+      () => resolve(false),
+      "Stepper",
+      "isVendorBatteryRestricted",
+      [],
+    );
+  });
+  if (onSuccess) promise = promise.then(onSuccess);
+  if (onError) promise = promise.catch(onError);
+  return promise;
+};
+
+// Android - Documented
+// Opens the vendor "Autostart" management screen (MIUI/HyperOS). Resolves true once the user returns.
+Stepper.prototype.requestVendorAutostart = function (onSuccess, onError) {
+  let promise = new Promise(function (resolve) {
+    if (!/^android|amazon/i.test(device.platform)) {
+      return resolve(false);
+    }
+    exec(resolve, () => resolve(false), "Stepper", "requestVendorAutostart", []);
+  });
+  if (onSuccess) promise = promise.then(onSuccess);
+  if (onError) promise = promise.catch(onError);
+  return promise;
+};
+
+// Android - Documented
+// Opens the vendor per-app battery screen (MIUI/HyperOS), falling back to the app details settings.
+Stepper.prototype.openVendorBatterySettings = function (onSuccess, onError) {
+  let promise = new Promise(function (resolve) {
+    if (!/^android|amazon/i.test(device.platform)) {
+      return resolve(false);
+    }
+    exec(
+      resolve,
+      () => resolve(false),
+      "Stepper",
+      "openVendorBatterySettings",
+      [],
+    );
+  });
+  if (onSuccess) promise = promise.then(onSuccess);
+  if (onError) promise = promise.catch(onError);
+  return promise;
+};
+
 // IOS & Android - Documented
 Stepper.prototype.startStepperUpdates = function (
   options,

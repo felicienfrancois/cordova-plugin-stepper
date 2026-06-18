@@ -21,8 +21,10 @@ import android.net.Uri;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.provider.Settings;
 import android.content.SharedPreferences;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -49,6 +51,7 @@ public class StepperPlugin extends CordovaPlugin {
 	public static int REQUEST_DYN_PERMS = 101;
 	public static int REQUEST_MAN_PERMS = 102;
 	public static int REQUEST_BATTERY_PERMS = 103;
+	public static int REQUEST_VENDOR_SETTINGS = 104;
 
 	private int status;
 
@@ -73,11 +76,15 @@ public class StepperPlugin extends CordovaPlugin {
 
 		if (action.equals("isStepCountingAvailable") || action.equals("requestPermission")
 				|| action.equals("disableBatteryOptimizations")
+				|| action.equals("isVendorBatteryRestricted") || action.equals("requestVendorAutostart")
+				|| action.equals("openVendorBatterySettings")
 				|| action.equals("startStepperUpdates") || action.equals("stopStepperUpdates")
 				|| action.equals("setNotificationLocalizedStrings")
 				|| action.equals("setGoal") || action.equals("getStepsByPeriod") || action.equals("getLastEntries")) {
 
 			final CallbackContext cc = callbackContext; // capture for runnable
+			// we will reply asynchronously, tell Cordova to keep the callback
+			answerLater(cc);
 			cordova.getThreadPool().execute(new Runnable() {
 				public void run() {
 					try {
@@ -87,6 +94,12 @@ public class StepperPlugin extends CordovaPlugin {
 							requestPermission(cc);
 						} else if (action.equals("disableBatteryOptimizations")) {
 							disableBatteryOptimizations(cc);
+						} else if (action.equals("isVendorBatteryRestricted")) {
+							win(cc, isVendorBatteryRestricted());
+						} else if (action.equals("requestVendorAutostart")) {
+							requestVendorAutostart(cc);
+						} else if (action.equals("openVendorBatterySettings")) {
+							openVendorBatterySettings(cc);
 						} else if (action.equals("startStepperUpdates")) {
 							updateCallback = cc;
 							start(args, cc);
@@ -146,11 +159,107 @@ public class StepperPlugin extends CordovaPlugin {
 		}
 	}
 
+	/**
+	 * On MIUI/HyperOS the AOSP "ignore battery optimizations" dialog is hijacked into an obscure 4-mode picker, and
+	 * the Doze whitelist alone does not stop the OS from freezing background work. These devices need their own
+	 * "Autostart" + per-app battery screens instead. Lets JS show a plain yes/no popup and route only those devices
+	 * to the vendor screens.
+	 */
+	private boolean isVendorBatteryRestricted() {
+		String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase(Locale.ROOT);
+		if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco")) {
+			return true;
+		}
+		return !getSystemProperty("ro.miui.ui.version.name").isEmpty()
+				|| !getSystemProperty("ro.mi.os.version.name").isEmpty();
+	}
+
+	private void requestVendorAutostart(CallbackContext cc) {
+		ComponentName autostart = new ComponentName("com.miui.securitycenter",
+				"com.miui.permcenter.autostart.AutoStartManagementActivity");
+		if (startVendorActivity(autostart, cc)) {
+			return;
+		}
+		openAppDetails(cc);
+	}
+
+	private void openVendorBatterySettings(CallbackContext cc) {
+		ComponentName battery = new ComponentName("com.miui.securitycenter",
+				"com.miui.powerkeeper.ui.HiddenAppsConfigActivity");
+		Intent intent = new Intent();
+		intent.setComponent(battery);
+		intent.putExtra("package_name", getActivity().getPackageName());
+		intent.putExtra("package_label", getAppLabel());
+		try {
+			pendingCallbackContext = cc;
+			cordova.startActivityForResult(this, intent, REQUEST_VENDOR_SETTINGS);
+			answerLater(cc);
+		} catch (Exception e) {
+			pendingCallbackContext = null;
+			openAppDetails(cc);
+		}
+	}
+
+	private boolean startVendorActivity(ComponentName component, CallbackContext cc) {
+		Intent intent = new Intent();
+		intent.setComponent(component);
+		try {
+			pendingCallbackContext = cc;
+			cordova.startActivityForResult(this, intent, REQUEST_VENDOR_SETTINGS);
+			answerLater(cc);
+			return true;
+		} catch (Exception e) {
+			pendingCallbackContext = null;
+			return false;
+		}
+	}
+
+	private void openAppDetails(CallbackContext cc) {
+		try {
+			Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+			intent.setData(Uri.parse("package:" + getActivity().getPackageName()));
+			pendingCallbackContext = cc;
+			cordova.startActivityForResult(this, intent, REQUEST_VENDOR_SETTINGS);
+			answerLater(cc);
+		} catch (Exception e) {
+			fail(cc, Status.ERROR_BATTERY_OPTIMIZATION, e.getMessage());
+		}
+	}
+
+	private String getAppLabel() {
+		try {
+			PackageManager pm = getActivity().getPackageManager();
+			return pm.getApplicationLabel(pm.getApplicationInfo(getActivity().getPackageName(), 0)).toString();
+		} catch (Exception e) {
+			return "";
+		}
+	}
+
+	private String getSystemProperty(String key) {
+		try {
+			@SuppressLint("PrivateApi")
+			Class<?> systemProperties = Class.forName("android.os.SystemProperties");
+			String value = (String) systemProperties.getMethod("get", String.class).invoke(null, key);
+			return value == null ? "" : value;
+		} catch (Exception e) {
+			return "";
+		}
+	}
+
 	@Override
 	public void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
 		if (requestCode == REQUEST_BATTERY_PERMS) {
 			if (pendingCallbackContext != null) {
 				win(pendingCallbackContext, resultCode == cordova.getActivity().RESULT_OK);
+				pendingCallbackContext = null;
+			}
+			return;
+		}
+		if (requestCode == REQUEST_VENDOR_SETTINGS) {
+			// Vendor autostart/battery screens always return RESULT_CANCELED and expose no API to read the
+			// resulting state, so we can only report that the screen was shown and the user came back.
+			if (pendingCallbackContext != null) {
+				win(pendingCallbackContext, true);
 				pendingCallbackContext = null;
 			}
 			return;
