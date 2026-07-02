@@ -2,7 +2,7 @@
 <plugin id="@felicienfrancois/cordova-plugin-stepper"
     xmlns="http://apache.org/cordova/ns/plugins/1.0"
     xmlns:android="http://schemas.android.com/apk/res/android"
-    version="1.7.0">
+    version="1.8.0">
     <name>Stepper</name>
     <author>Felicien Francois</author>
     <description>Lightweight pedometer Cordova/Phonegap plugin for Android using the hardware step sensor, with notifications.</description>
@@ -55,6 +55,14 @@
             <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
             <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
+            <!-- Package visibility (API 30+) for the MIUI/HyperOS vendor Autostart and battery screens + PowerKeeper state provider -->
+            <queries>
+                <package android:name="com.miui.securitycenter" />
+                <package android:name="com.miui.powerkeeper" />
+                <intent>
+                    <action android:name="miui.intent.action.HIDDEN_APPS_CONFIG_ACTIVITY" />
+                </intent>
+            </queries>
         </config-file>
         <config-file target="res/xml/config.xml" parent="/*">
             <feature name="Stepper">

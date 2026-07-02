@@ -65,26 +65,40 @@ stepper.disableBatteryOptimizations().then((result) => {
 ```
 
 #### isVendorBatteryRestricted () => Promise [Android only]
-Resolves `true` on MIUI/HyperOS (Xiaomi/Redmi/POCO) devices, where the standard `disableBatteryOptimizations`
-dialog is replaced by an obscure multi-mode battery picker and the Doze whitelist alone does not prevent the OS
-from freezing background work. Use it to show your own yes/no popup and route only these devices to the vendor
-screens below. Resolves `false` on iOS and stock Android.
+Resolves `true` on MIUI/HyperOS (Xiaomi/Redmi/POCO) devices that still need the vendor configuration, where the
+standard `disableBatteryOptimizations` dialog is replaced by an obscure multi-mode battery picker and the Doze
+whitelist alone does not prevent the OS from freezing background work. Resolves `false` on iOS, stock Android,
+and on vendor devices where both Autostart and "No restrictions" battery mode could be verified as already
+configured. Use it to show your own yes/no popup and route only these devices to the vendor screens below.
+
+#### getVendorBackgroundStatus () => Promise [Android only]
+Resolves `{ vendor, autostartAllowed, batteryUnrestricted }`:
+- `vendor`: `true` on MIUI/HyperOS (Xiaomi/Redmi/POCO) devices; when `false` the other fields are absent.
+- `autostartAllowed`: `true`/`false` when the proprietary Autostart AppOps state could be read, `null` when unknown.
+- `batteryUnrestricted`: `true` when the PowerKeeper per-app battery mode is "No restrictions", `false` when it is
+  another mode, `null` when the PowerKeeper provider is absent or refuses the query.
+
+Use it to build precise instructions (only list the steps that are still needed) and to skip the popup entirely
+when everything is already configured.
 
 #### requestVendorAutostart () => Promise [Android only]
 Opens the vendor "Autostart" management screen (MIUI/HyperOS), falling back to the app details settings when the
-screen is unavailable. Resolves `true` once the user returns (the resulting state cannot be read back).
+screen is unavailable. Resolves `true` immediately without opening anything when Autostart is verified as already
+allowed. Otherwise resolves `true` once the user returns.
 
 #### openVendorBatterySettings () => Promise [Android only]
-Opens the vendor per-app battery screen (MIUI/HyperOS), falling back to the app details settings. Resolves `true`
-once the user returns.
+Opens the vendor per-app battery mode screen (MIUI/HyperOS PowerKeeper), falling back to the app details settings.
+Resolves `true` immediately without opening anything when the battery mode is verified as "No restrictions".
+Otherwise resolves `true` once the user returns.
 
 ```js
-if (await stepper.isVendorBatteryRestricted()) {
-  // show your own translated yes/no popup, then on "yes":
-  await stepper.requestVendorAutostart();
-  await stepper.openVendorBatterySettings();
-} else {
+const status = await stepper.getVendorBackgroundStatus();
+if (!status.vendor) {
   await stepper.disableBatteryOptimizations();
+} else if (status.autostartAllowed !== true || status.batteryUnrestricted !== true) {
+  // show your own translated popup listing only the needed steps, then on "yes":
+  await stepper.requestVendorAutostart();      // skipped internally if already allowed
+  await stepper.openVendorBatterySettings();   // skipped internally if already unrestricted
 }
 ```
 

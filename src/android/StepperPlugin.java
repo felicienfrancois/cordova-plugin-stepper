@@ -19,7 +19,10 @@ import org.json.JSONObject;
 
 import android.net.Uri;
 import android.Manifest;
+import android.app.AppOpsManager;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.os.Process;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -77,7 +80,7 @@ public class StepperPlugin extends CordovaPlugin {
 		if (action.equals("isStepCountingAvailable") || action.equals("requestPermission")
 				|| action.equals("disableBatteryOptimizations")
 				|| action.equals("isVendorBatteryRestricted") || action.equals("requestVendorAutostart")
-				|| action.equals("openVendorBatterySettings")
+				|| action.equals("openVendorBatterySettings") || action.equals("getVendorBackgroundStatus")
 				|| action.equals("startStepperUpdates") || action.equals("stopStepperUpdates")
 				|| action.equals("setNotificationLocalizedStrings")
 				|| action.equals("setGoal") || action.equals("getStepsByPeriod") || action.equals("getLastEntries")) {
@@ -100,6 +103,8 @@ public class StepperPlugin extends CordovaPlugin {
 							requestVendorAutostart(cc);
 						} else if (action.equals("openVendorBatterySettings")) {
 							openVendorBatterySettings(cc);
+						} else if (action.equals("getVendorBackgroundStatus")) {
+							getVendorBackgroundStatus(cc);
 						} else if (action.equals("startStepperUpdates")) {
 							updateCallback = cc;
 							start(args, cc);
@@ -165,7 +170,7 @@ public class StepperPlugin extends CordovaPlugin {
 	 * "Autostart" + per-app battery screens instead. Lets JS show a plain yes/no popup and route only those devices
 	 * to the vendor screens.
 	 */
-	private boolean isVendorBatteryRestricted() {
+	private boolean isVendorDevice() {
 		String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase(Locale.ROOT);
 		if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco")) {
 			return true;
@@ -174,7 +179,68 @@ public class StepperPlugin extends CordovaPlugin {
 				|| !getSystemProperty("ro.mi.os.version.name").isEmpty();
 	}
 
+	private boolean isVendorBatteryRestricted() {
+		if (!isVendorDevice()) {
+			return false;
+		}
+		return !(Boolean.TRUE.equals(isVendorAutostartAllowed()) && Boolean.TRUE.equals(isVendorBatteryUnrestricted()));
+	}
+
+	private void getVendorBackgroundStatus(CallbackContext cc) throws JSONException {
+		JSONObject status = new JSONObject();
+		boolean vendor = isVendorDevice();
+		status.put("vendor", vendor);
+		if (vendor) {
+			Boolean autostart = isVendorAutostartAllowed();
+			Boolean battery = isVendorBatteryUnrestricted();
+			status.put("autostartAllowed", autostart == null ? JSONObject.NULL : autostart);
+			status.put("batteryUnrestricted", battery == null ? JSONObject.NULL : battery);
+		}
+		win(cc, status);
+	}
+
+	/**
+	 * MIUI gates autostart behind a proprietary AppOps op (10008, OP_AUTO_START). No public API: reflection on
+	 * checkOpNoThrow, null when the op does not exist (non-MIUI or future removal).
+	 */
+	private Boolean isVendorAutostartAllowed() {
+		try {
+			AppOpsManager appOps = (AppOpsManager) getActivity().getSystemService(Context.APP_OPS_SERVICE);
+			java.lang.reflect.Method checkOp = AppOpsManager.class.getMethod("checkOpNoThrow", int.class, int.class,
+					String.class);
+			int mode = (Integer) checkOp.invoke(appOps, 10008, Process.myUid(), getActivity().getPackageName());
+			return mode == AppOpsManager.MODE_ALLOWED;
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	/**
+	 * MIUI PowerKeeper stores the per-app battery mode in a world-readable provider; bgControl is "noRestrict" when
+	 * the user picked "No restrictions". A missing row means the default restricted mode; null when the provider is
+	 * absent (HyperOS variants) or refuses the query.
+	 */
+	private Boolean isVendorBatteryUnrestricted() {
+		Uri uri = Uri.parse("content://com.miui.powerkeeper.configure/userTable");
+		try (Cursor cursor = getActivity().getContentResolver().query(uri, new String[] { "pkgName", "bgControl" },
+				"pkgName = ?", new String[] { getActivity().getPackageName() }, null)) {
+			if (cursor == null) {
+				return null;
+			}
+			if (cursor.moveToFirst()) {
+				return "noRestrict".equals(cursor.getString(cursor.getColumnIndexOrThrow("bgControl")));
+			}
+			return false;
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
 	private void requestVendorAutostart(CallbackContext cc) {
+		if (Boolean.TRUE.equals(isVendorAutostartAllowed())) {
+			win(cc, true);
+			return;
+		}
 		ComponentName autostart = new ComponentName("com.miui.securitycenter",
 				"com.miui.permcenter.autostart.AutoStartManagementActivity");
 		if (startVendorActivity(autostart, cc)) {
@@ -184,10 +250,12 @@ public class StepperPlugin extends CordovaPlugin {
 	}
 
 	private void openVendorBatterySettings(CallbackContext cc) {
-		ComponentName battery = new ComponentName("com.miui.securitycenter",
-				"com.miui.powerkeeper.ui.HiddenAppsConfigActivity");
+		if (Boolean.TRUE.equals(isVendorBatteryUnrestricted())) {
+			win(cc, true);
+			return;
+		}
 		Intent intent = new Intent();
-		intent.setComponent(battery);
+		intent.setComponent(new ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"));
 		intent.putExtra("package_name", getActivity().getPackageName());
 		intent.putExtra("package_label", getAppLabel());
 		try {
@@ -196,7 +264,16 @@ public class StepperPlugin extends CordovaPlugin {
 			answerLater(cc);
 		} catch (Exception e) {
 			pendingCallbackContext = null;
-			openAppDetails(cc);
+			intent.setComponent(null);
+			intent.setAction("miui.intent.action.HIDDEN_APPS_CONFIG_ACTIVITY");
+			try {
+				pendingCallbackContext = cc;
+				cordova.startActivityForResult(this, intent, REQUEST_VENDOR_SETTINGS);
+				answerLater(cc);
+			} catch (Exception e2) {
+				pendingCallbackContext = null;
+				openAppDetails(cc);
+			}
 		}
 	}
 

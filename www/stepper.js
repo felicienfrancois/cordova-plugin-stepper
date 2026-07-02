@@ -68,6 +68,27 @@ Stepper.prototype.isVendorBatteryRestricted = function (onSuccess, onError) {
 };
 
 // Android - Documented
+// Returns { vendor, autostartAllowed, batteryUnrestricted } describing the MIUI/HyperOS background-execution state.
+// autostartAllowed / batteryUnrestricted are true/false when the state could be read, null when unknown.
+Stepper.prototype.getVendorBackgroundStatus = function (onSuccess, onError) {
+  let promise = new Promise(function (resolve) {
+    if (!/^android|amazon/i.test(device.platform)) {
+      return resolve({ vendor: false });
+    }
+    exec(
+      resolve,
+      () => resolve({ vendor: false }),
+      "Stepper",
+      "getVendorBackgroundStatus",
+      [],
+    );
+  });
+  if (onSuccess) promise = promise.then(onSuccess);
+  if (onError) promise = promise.catch(onError);
+  return promise;
+};
+
+// Android - Documented
 // Opens the vendor "Autostart" management screen (MIUI/HyperOS). Resolves true once the user returns.
 Stepper.prototype.requestVendorAutostart = function (onSuccess, onError) {
   let promise = new Promise(function (resolve) {
