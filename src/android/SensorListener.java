@@ -43,6 +43,9 @@ public class SensorListener extends Service implements SensorEventListener {
 	public final static int NOTIFICATION_ID = 1;
 	private final static long SAVE_OFFSET_TIME_MS = 300000;
 	private final static int SAVE_OFFSET_STEPS = 30;
+	// Kept at the value historically used by the periodic alarm, so an alarm armed by a previous version is replaced
+	// rather than left running alongside the new one.
+	private final static int ALARM_REQUEST_CODE = 2;
 
 	private static TimeZone timeZone = TimeZone.getDefault();
 
@@ -54,6 +57,7 @@ public class SensorListener extends Service implements SensorEventListener {
 	private static int notificationIconId = 0;
 
 	private final BroadcastReceiver shutdownReceiver = new ShutdownReceiver();
+	private boolean shutdownReceiverRegistered = false;
 
 	@Override
 	public void onAccuracyChanged(final Sensor sensor, int accuracy) {
@@ -99,9 +103,16 @@ public class SensorListener extends Service implements SensorEventListener {
 	}
 
 	private void registerBroadcastReceiver() {
+		if (shutdownReceiverRegistered) {
+			// onStartCommand runs again on every alarm tick and every app reopen, on the same service instance.
+			// Registering again stacks another IntentFilter on the same receiver, and ShutdownReceiver would then
+			// fire - and save the index - once per stacked filter.
+			return;
+		}
 		IntentFilter filter = new IntentFilter();
 		filter.addAction(Intent.ACTION_SHUTDOWN);
 		registerReceiver(shutdownReceiver, filter);
+		shutdownReceiverRegistered = true;
 	}
 
 	public static void saveCurrentIndex(Context context) {
@@ -170,26 +181,39 @@ public class SensorListener extends Service implements SensorEventListener {
 		// Load history from db
 		Database db = Database.getInstance(getApplicationContext());
 		todaySavedSteps = db.getSteps(Util.getToday(timeZone), System.currentTimeMillis());
-		List<Entry> lastEntry = db.getLastEntries(1);
-		db.close();
-		if (!lastEntry.isEmpty()) {
-			currentIndex = lastSavedIndex = lastEntry.get(0).endIndex;
-			lastSaveTime = lastEntry.get(0).endTimestamp;
+		if (lastSavedIndex == -1l) {
+			// Fresh process only. onStartCommand also runs on every alarm tick and every app reopen, where the
+			// in-memory index is ahead of the database by up to SAVE_OFFSET_STEPS steps / SAVE_OFFSET_TIME_MS:
+			// reloading would rewind currentIndex to the last saved value, and the notification and the UI would show
+			// a stale count until the next sensor event.
+			List<Entry> lastEntry = db.getLastEntries(1);
+			if (!lastEntry.isEmpty()) {
+				currentIndex = lastSavedIndex = lastEntry.get(0).endIndex;
+				lastSaveTime = lastEntry.get(0).endTimestamp;
+			}
 		}
+		db.close();
 		Log.d("STEPPER", "Loaded history from db todaySavedSteps=" + todaySavedSteps + ", lastSaveTime=" + lastSaveTime
 				+ ", lastSavedIndex=" + lastSavedIndex);
 
 		// restart service every fifteen minutes to save the current step count
 		long nextUpdate = Math.min(Util.getNextHour(timeZone),
 				System.currentTimeMillis() + AlarmManager.INTERVAL_FIFTEEN_MINUTES);
-		scheduleStart(nextUpdate, 2);
+		scheduleStart(nextUpdate);
 
 		return START_STICKY;
 	}
 
-	private void scheduleStart(long timestamp, int taskId) {
+	/**
+	 * Single request code on purpose. AlarmManager.set* cancels any alarm already scheduled for an equal
+	 * IntentSender, and two PendingIntents are equal when the request code, the target and Intent.filterEquals all
+	 * match - so reusing the code replaces the pending alarm rather than adding a second one. Using a distinct code
+	 * per caller used to leave the periodic alarm and the onTaskRemoved one both armed, delivering two
+	 * onStartCommand calls after a swipe away.
+	 */
+	private void scheduleStart(long timestamp) {
 		AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-		PendingIntent pi = PendingIntent.getService(this, taskId, new Intent(this, SensorListener.class),
+		PendingIntent pi = PendingIntent.getService(this, ALARM_REQUEST_CODE, new Intent(this, SensorListener.class),
 				PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 		// RTC_WAKEUP, not RTC: the alarm cuts a new hourly database entry at the next hour boundary, so it has to
 		// fire on time even while the device sleeps. A non-wakeup alarm waits for the next natural wake-up, which
@@ -221,7 +245,7 @@ public class SensorListener extends Service implements SensorEventListener {
 		Log.i("STEPPER", "SensorListener.onTaskRemoved");
 		// Restart service in 2000 ms
 		try {
-			scheduleStart(System.currentTimeMillis() + 2000, 3);
+			scheduleStart(System.currentTimeMillis() + 2000);
 		} catch (Exception e) {
 			Log.e("STEPPER", "scheduleStart FAILED");
 		}
@@ -237,7 +261,15 @@ public class SensorListener extends Service implements SensorEventListener {
 		try {
 			SensorManager sm = (SensorManager) getSystemService(SENSOR_SERVICE);
 			sm.unregisterListener(this);
-			unregisterReceiver(shutdownReceiver);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		// separate try block: a failure above must not leave the receiver registered
+		try {
+			if (shutdownReceiverRegistered) {
+				unregisterReceiver(shutdownReceiver);
+				shutdownReceiverRegistered = false;
+			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
