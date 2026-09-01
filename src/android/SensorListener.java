@@ -56,6 +56,12 @@ public class SensorListener extends Service implements SensorEventListener {
 	private static long lastSaveTime;
 
 	private static int notificationIconId = 0;
+	// Both rebuilt from scratch on every notification update before: the PendingIntent costs a PackageManager intent
+	// resolution plus an ActivityManager round trip, and the NumberFormat two or three allocations, up to 30 times a
+	// minute while walking. Neither ever changes, apart from the formatter on a system locale change.
+	private static PendingIntent contentIntent;
+	private static NumberFormat numberFormat;
+	private static Locale numberFormatLocale;
 
 	// Running instance, so the plugin can redraw the notification without going through onStartCommand. Cleared in
 	// onDestroy, and dies with the process when the service is killed outright.
@@ -63,6 +69,7 @@ public class SensorListener extends Service implements SensorEventListener {
 
 	private final BroadcastReceiver shutdownReceiver = new ShutdownReceiver();
 	private boolean shutdownReceiverRegistered = false;
+	private boolean foregroundStarted = false;
 
 	@Override
 	public void onAccuracyChanged(final Sensor sensor, int accuracy) {
@@ -86,14 +93,14 @@ public class SensorListener extends Service implements SensorEventListener {
 				todaySavedSteps = 0;
 			try {
 				StepperPlugin.updateUI(todaySteps());
-				showNotification();
+				updateNotification();
 			} finally {
 				saveCurrentIndex(getApplicationContext());
 			}
 			lastUpdateTime = now;
 		} else if (now - lastUpdateTime > 2000) { // Debouncer: max update every 2 seconds
 			StepperPlugin.updateUI(todaySteps());
-			showNotification();
+			updateNotification();
 			lastUpdateTime = now;
 		}
 	}
@@ -169,6 +176,10 @@ public class SensorListener extends Service implements SensorEventListener {
 		lastSaveTime = currentTime;
 	}
 
+	/**
+	 * Asserts the foreground service state and posts the notification. Called from onStartCommand, which has to reach
+	 * startForeground within a few seconds of startForegroundService.
+	 */
 	private void showNotification() {
 		if (getSharedPreferences("pedometer", Context.MODE_PRIVATE).getBoolean("notification", true)) {
 			if (Build.VERSION.SDK_INT >= 34) {
@@ -179,6 +190,24 @@ public class SensorListener extends Service implements SensorEventListener {
 				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
 						getNotification());
 			}
+			foregroundStarted = true;
+		}
+	}
+
+	/**
+	 * Redraws the ongoing notification. notify() with the same id is the documented way to update a foreground
+	 * service notification, and unlike another startForeground it does not go back through ActivityManager to
+	 * re-assert a state the service already holds. Same notification, same content, one binder call instead of two.
+	 */
+	private void updateNotification() {
+		if (!foregroundStarted) {
+			// no notification posted yet: nothing to redraw, and the service still owes startForeground
+			showNotification();
+			return;
+		}
+		if (getSharedPreferences("pedometer", Context.MODE_PRIVATE).getBoolean("notification", true)) {
+			((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
+					getNotification());
 		}
 	}
 
@@ -269,7 +298,7 @@ public class SensorListener extends Service implements SensorEventListener {
 		new Handler(service.getMainLooper()).post(new Runnable() {
 			public void run() {
 				try {
-					service.showNotification();
+					service.updateNotification();
 				} catch (Exception e) {
 					Log.e("STEPPER", "refreshNotification FAILED", e);
 				}
@@ -323,31 +352,48 @@ public class SensorListener extends Service implements SensorEventListener {
 		}
 	}
 
+	/**
+	 * NumberFormat is not thread safe, and neither is this lazy init. Both are fine because every getNotification
+	 * call reaches here on the main thread: onStartCommand, onSensorChanged, and refreshNotification which posts to
+	 * the main looper.
+	 */
+	private static NumberFormat numberFormat() {
+		Locale locale = Locale.getDefault();
+		if (numberFormat == null || !locale.equals(numberFormatLocale)) {
+			numberFormat = NumberFormat.getInstance(locale);
+			numberFormatLocale = locale;
+		}
+		return numberFormat;
+	}
+
 	public Notification getNotification() {
 		SharedPreferences prefs = getSharedPreferences("pedometer", Context.MODE_PRIVATE);
 		int goal = prefs.getInt(Config.GOAL_PREF_INT, Config.DEFAULT_GOAL);
 		Notification.Builder notificationBuilder = Build.VERSION.SDK_INT >= 26
 				? API26Wrapper.getNotificationBuilder(getApplicationContext())
 				: new Notification.Builder(getApplicationContext());
-		if (todaySteps() > 0) {
-			notificationBuilder.setProgress(goal, todaySteps(), false).setContentText(todaySteps() >= Math.max(goal, 1)
+		int todaySteps = todaySteps();
+		NumberFormat format = numberFormat();
+		if (todaySteps > 0) {
+			notificationBuilder.setProgress(goal, todaySteps, false).setContentText(todaySteps >= Math.max(goal, 1)
 					? String.format(prefs.getString(Config.PEDOMETER_GOAL_REACHED_FORMAT_TEXT, "%s steps today"),
-							NumberFormat.getInstance(Locale.getDefault()).format(todaySteps()),
-							NumberFormat.getInstance(Locale.getDefault()).format(goal))
+							format.format(todaySteps),
+							format.format(goal))
 					: String.format(prefs.getString(Config.PEDOMETER_STEPS_TO_GO_FORMAT_TEXT, "%s steps to go"),
-							NumberFormat.getInstance(Locale.getDefault()).format(goal - todaySteps()),
-							NumberFormat.getInstance(Locale.getDefault()).format(todaySteps()),
-							NumberFormat.getInstance(Locale.getDefault()).format(goal)));
+							format.format(goal - todaySteps),
+							format.format(todaySteps),
+							format.format(goal)));
 		} else { // still no step value?
 			notificationBuilder.setContentText(prefs.getString(Config.PEDOMETER_YOUR_PROGRESS_FORMAT_TEXT,
 					"Your progress will be shown here soon"));
 		}
 
-		PackageManager packageManager = getPackageManager();
-		Intent launchIntent = packageManager.getLaunchIntentForPackage(getPackageName());
-
-		PendingIntent contentIntent = PendingIntent.getActivity(this, 0, launchIntent,
-				PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+		if (contentIntent == null) {
+			PackageManager packageManager = getPackageManager();
+			Intent launchIntent = packageManager.getLaunchIntentForPackage(getPackageName());
+			contentIntent = PendingIntent.getActivity(this, 0, launchIntent,
+					PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+		}
 
 		if (notificationIconId == 0) {
 			notificationIconId = getNotificationIconId();
@@ -367,7 +413,11 @@ public class SensorListener extends Service implements SensorEventListener {
 			e.printStackTrace();
 		}
 
-		// enable batching with delay of max 2 min
+		// No batching: this 3 argument overload leaves maxReportLatencyUs at 0, so events are delivered as they are
+		// measured. That is deliberate - the notification is a user facing counter that has to stay fresh even while
+		// the app is in the background, and batching would freeze it for the whole latency window.
+		// getDefaultSensor returns the non wake-up variant, so this does not pull the SoC out of suspend, and
+		// TYPE_STEP_COUNTER is cumulative since boot, so no step is ever lost while the AP sleeps.
 		sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER), SensorManager.SENSOR_DELAY_GAME);
 	}
 }

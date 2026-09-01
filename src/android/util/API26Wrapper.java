@@ -16,22 +16,30 @@ public class API26Wrapper {
 
     public final static String NOTIFICATION_CHANNEL_ID = "Notification";
 
+    // The channel is stored by the system and survives process restarts, and a second createNotificationChannel call
+    // only ever updates the name, description and group - which never change here. Creating it once per process
+    // instead of on every notification update saves a binder round trip per step.
+    private static boolean channelCreated = false;
+
     public static void startForegroundService(final Context context, final Intent intent) {
         context.startForegroundService(intent);
     }
 
     public static Notification.Builder getNotificationBuilder(final Context context) {
-        NotificationManager manager =
-                (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationChannel channel =
-                new NotificationChannel(NOTIFICATION_CHANNEL_ID, NOTIFICATION_CHANNEL_ID,
-                        NotificationManager.IMPORTANCE_NONE);
-        channel.setImportance(NotificationManager.IMPORTANCE_MIN); // ignored by Android O ...
-        channel.enableLights(false);
-        channel.enableVibration(false);
-        channel.setBypassDnd(false);
-        channel.setSound(null, null);
-        manager.createNotificationChannel(channel);
+        if (!channelCreated) {
+            NotificationManager manager =
+                    (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationChannel channel =
+                    new NotificationChannel(NOTIFICATION_CHANNEL_ID, NOTIFICATION_CHANNEL_ID,
+                            NotificationManager.IMPORTANCE_NONE);
+            channel.setImportance(NotificationManager.IMPORTANCE_MIN); // ignored by Android O ...
+            channel.enableLights(false);
+            channel.enableVibration(false);
+            channel.setBypassDnd(false);
+            channel.setSound(null, null);
+            manager.createNotificationChannel(channel);
+            channelCreated = true;
+        }
         Notification.Builder builder = new Notification.Builder(context, NOTIFICATION_CHANNEL_ID);
         return builder;
     }
