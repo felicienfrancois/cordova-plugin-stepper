@@ -179,19 +179,28 @@ public class SensorListener extends Service implements SensorEventListener {
 	/**
 	 * Asserts the foreground service state and posts the notification. Called from onStartCommand, which has to reach
 	 * startForeground within a few seconds of startForegroundService.
+	 * <p/>
+	 * There is deliberately no opt-out. This used to be gated on a "notification" preference inherited from the
+	 * upstream standalone app, where skipping the notification was fine because the service was a plain background
+	 * service. Since Android 8 the service has to be a foreground service to survive, and a foreground service is
+	 * killed with ForegroundServiceDidNotStartInTimeException when startForegroundService is not followed by
+	 * startForeground - so honouring the preference was a guaranteed crash. Nothing in the plugin ever wrote it, but
+	 * the host app could, through getSharedPreferences("pedometer").
+	 * <p/>
+	 * Hiding the notification is still possible, just not this way: post it on a channel whose importance is
+	 * IMPORTANCE_NONE, or let the user block the channel from the system notification settings. The foreground
+	 * service state does not depend on the notification being rendered.
 	 */
 	private void showNotification() {
-		if (getSharedPreferences("pedometer", Context.MODE_PRIVATE).getBoolean("notification", true)) {
-			if (Build.VERSION.SDK_INT >= 34) {
-				startForeground(NOTIFICATION_ID, getNotification(), 256); // 256 = FOREGROUND_SERVICE_TYPE_HEALTH
-			} else if (Build.VERSION.SDK_INT >= 26) {
-				startForeground(NOTIFICATION_ID, getNotification());
-			} else {
-				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
-						getNotification());
-			}
-			foregroundStarted = true;
+		if (Build.VERSION.SDK_INT >= 34) {
+			startForeground(NOTIFICATION_ID, getNotification(), 256); // 256 = FOREGROUND_SERVICE_TYPE_HEALTH
+		} else if (Build.VERSION.SDK_INT >= 26) {
+			startForeground(NOTIFICATION_ID, getNotification());
+		} else {
+			((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
+					getNotification());
 		}
+		foregroundStarted = true;
 	}
 
 	/**
@@ -205,10 +214,8 @@ public class SensorListener extends Service implements SensorEventListener {
 			showNotification();
 			return;
 		}
-		if (getSharedPreferences("pedometer", Context.MODE_PRIVATE).getBoolean("notification", true)) {
-			((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
-					getNotification());
-		}
+		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
+				getNotification());
 	}
 
 	@Override
