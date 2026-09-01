@@ -404,6 +404,9 @@ public class StepperPlugin extends CordovaPlugin {
 			endate = OffsetDateTime.parse(args.getString(1)).toEpochSecond() * 1000;
 		} catch (JSONException e) {
 			e.printStackTrace();
+			// execute() already sent answerLater with keepCallback: returning without win or fail would leave the
+			// JavaScript promise pending forever.
+			fail(cc, 0, e.getMessage());
 			return;
 		}
 
@@ -423,6 +426,7 @@ public class StepperPlugin extends CordovaPlugin {
 			joresult.put("steps", steps);
 		} catch (JSONException e) {
 			e.printStackTrace();
+			fail(cc, 0, e.getMessage());
 			return;
 		}
 		win(cc, joresult);
@@ -434,6 +438,9 @@ public class StepperPlugin extends CordovaPlugin {
 			num = args.getInt(0);
 		} catch (JSONException e) {
 			e.printStackTrace();
+			// The only one of these reachable from www/stepper.js, which forwards num unvalidated: getLastEntries()
+			// called with undefined, null, NaN or a non numeric string lands here.
+			fail(cc, 0, e.getMessage());
 			return;
 		}
 
@@ -457,6 +464,7 @@ public class StepperPlugin extends CordovaPlugin {
 			joresult.put("entries", jaEntries);
 		} catch (JSONException e) {
 			e.printStackTrace();
+			fail(cc, 0, e.getMessage());
 			return;
 		}
 		win(cc, joresult);
@@ -651,6 +659,8 @@ public class StepperPlugin extends CordovaPlugin {
 		try {
 			clearDatabase = args.getBoolean(0);
 		} catch (JSONException e) {
+			e.printStackTrace();
+			fail(cc, 0, e.getMessage());
 			return;
 		}
 
