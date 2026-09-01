@@ -13,4 +13,6 @@ public class Config {
   
   public static String TIMEZONE = "timeZone";
 
+  public static String SKIP_NOTIFICATION_PERMISSION_BOOL = "skipNotificationPermission";
+
 }

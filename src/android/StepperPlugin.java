@@ -94,7 +94,7 @@ public class StepperPlugin extends CordovaPlugin {
 						if (action.equals("isStepCountingAvailable")) {
 							isStepCountingAvailable(cc);
 						} else if (action.equals("requestPermission")) {
-							requestPermission(cc);
+							requestPermission(args, cc);
 						} else if (action.equals("disableBatteryOptimizations")) {
 							disableBatteryOptimizations(cc);
 						} else if (action.equals("isVendorBatteryRestricted")) {
@@ -486,13 +486,25 @@ public class StepperPlugin extends CordovaPlugin {
 		StepperPlugin.updateCallback = null;
 	}
 
-	private void requestPermission(CallbackContext cc) {
+	private boolean skipNotificationPermission(JSONObject options) {
+		return options != null && options.optBoolean(Config.SKIP_NOTIFICATION_PERMISSION_BOOL, false);
+	}
+
+	/**
+	 * POST_NOTIFICATIONS is a single app-wide permission shared with every other notification source in the app, so
+	 * an app that already prompts for notifications elsewhere (push registration) can pass skipNotificationPermission
+	 * to avoid a second, identical-looking dialog. The service keeps counting either way, its notification is just
+	 * not displayed.
+	 */
+	private void requestPermission(JSONArray args, CallbackContext cc) {
+		final JSONObject options = args.optJSONObject(0);
 		List<String> perms = new ArrayList<>();
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
 			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
 		}
-		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
+		if (!skipNotificationPermission(options) && Build.VERSION.SDK_INT >= 33
+				&& !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
 			perms.add("android.permission.POST_NOTIFICATIONS");
 		}
 
@@ -603,7 +615,8 @@ public class StepperPlugin extends CordovaPlugin {
 				&& !cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
 			perms.add(Manifest.permission.ACTIVITY_RECOGNITION);
 		}
-		if (Build.VERSION.SDK_INT >= 33 && !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
+		if (!skipNotificationPermission(options) && Build.VERSION.SDK_INT >= 33
+				&& !cordova.hasPermission("android.permission.POST_NOTIFICATIONS")) {
 			perms.add("android.permission.POST_NOTIFICATIONS");
 		}
 

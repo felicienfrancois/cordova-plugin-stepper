@@ -15,12 +15,20 @@ Stepper.prototype.isStepCountingAvailable = function (onSuccess, onError) {
 };
 
 // IOS & Android - Documented
-Stepper.prototype.requestPermission = function (onSuccess, onError) {
+// options.skipNotificationPermission (optional, default false): don't request POST_NOTIFICATIONS. Use it when the
+// app already prompts for notifications elsewhere (push registration) to avoid a second, identical-looking dialog.
+Stepper.prototype.requestPermission = function (options, onSuccess, onError) {
+  if (typeof options !== "object" || options === null) {
+    onError = onSuccess;
+    onSuccess = options;
+    options = {};
+  }
+  const opts = options;
   let promise = new Promise(function (resolve, reject) {
     if (!/^android|amazon/i.test(device.platform)) {
       return resolve(true);
     }
-    exec(resolve, reject, "Stepper", "requestPermission", []);
+    exec(resolve, reject, "Stepper", "requestPermission", [opts]);
   });
   if (onSuccess) promise = promise.then(onSuccess);
   if (onError) promise = promise.catch(onError);

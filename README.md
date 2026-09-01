@@ -34,11 +34,17 @@ stepper.isStepCountingAvailable().then((result) => {
 
 ```
 
-#### requestPermission () => Promise [Android only]
+#### requestPermission (options) => Promise [Android only]
 Android: request for permission by anticipation
 IOS: return true and do nothing
 This can be helpful to request permission before starting the stepper.
 It can also prevent unexpected detachment at first start (Permission popup trigger a pause/resume cycle which can leads to service detachment)
+
+Requests `ACTIVITY_RECOGNITION`, plus `POST_NOTIFICATIONS` on Android 13+ for the background service notification.
+
+The `options` parameter is optional and may contain:
+- skipNotificationPermission - _bool_ - Don't request `POST_NOTIFICATIONS` (default `false`, i.e. it is requested).
+  See [Skipping the notification permission](#skipping-the-notification-permission)
 
 ```js
 stepper.requestPermission().then((result) => {
@@ -48,6 +54,30 @@ stepper.requestPermission().then((result) => {
   console.error(err);
 });
 
+// App already asked for notifications through its own push flow
+stepper.requestPermission({ skipNotificationPermission: true }).then((result) => {
+  if(result) console.log("Authorized !");
+});
+```
+
+##### Skipping the notification permission
+
+`POST_NOTIFICATIONS` is a single app-wide permission shared by every notification source in the app — push SDKs such
+as OneSignal included — and there is no per-channel permission. If your app already prompts for notifications
+elsewhere, the pedometer prompt is a second identical-looking dialog for a different purpose, which is misleading;
+and since Android permanently denies the permission after two refusals, it also burns the app's last chance to ever
+ask again. Pass `skipNotificationPermission: true` in that case and let your own flow own the single request.
+
+Skipping it does not affect step counting: the foreground service still starts and keeps counting, only its progress
+notification stays hidden from the shade (the app remains listed in the Android 13+ "Active apps" task manager).
+
+Pass it to **both** `requestPermission` and `startStepperUpdates`, otherwise the one you left out prompts anyway:
+
+```js
+const options = { skipNotificationPermission: true };
+
+await stepper.requestPermission(options);
+stepper.startStepperUpdates(options, onStepUpdate, onError);
 ```
 
 #### disableBatteryOptimizations () => Promise [Android only]
@@ -114,6 +144,8 @@ The `options` parameter may contain optional parameters. Below parameters recomm
 - pedometerYourProgressFormatText - _string_ - Set progress description format string with text for notification
 - pedometerGoalReachedFormatText - _string_ - Set goal description format string with text for notification when the number of steps reaches the target value
 - timeZone - _string_ - Force timezone for aggregation ticks and todays count
+- skipNotificationPermission - _bool_ - Don't request `POST_NOTIFICATIONS` (default `false`, i.e. it is requested).
+  See [Skipping the notification permission](#skipping-the-notification-permission)
 
 Example:
 ```js
