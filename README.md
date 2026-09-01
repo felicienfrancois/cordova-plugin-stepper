@@ -138,7 +138,8 @@ The onStepUpdate handler is called once during the first call and then called fr
 The method also creates a background service with notification (Android only).
 
 The `options` parameter may contain optional parameters. Below parameters recommended for notification localization (in Android platform):
-- goal - _int_ - the goal (default to no goal)
+- goal - _int_ - the goal (default to no goal). Omit it to keep a goal previously set through `setGoal`; pass `0` to
+  clear it. With no goal, the notification shows no progress bar
 - pedometerIsCountingText - _string_ - Set title text for notification
 - pedometerStepsToGoFormatText - _string_ - Set description format string with text for notification
 - pedometerYourProgressFormatText - _string_ - Set progress description format string with text for notification

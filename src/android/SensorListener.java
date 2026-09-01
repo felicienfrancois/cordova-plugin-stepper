@@ -17,6 +17,7 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -55,6 +56,10 @@ public class SensorListener extends Service implements SensorEventListener {
 	private static long lastSaveTime;
 
 	private static int notificationIconId = 0;
+
+	// Running instance, so the plugin can redraw the notification without going through onStartCommand. Cleared in
+	// onDestroy, and dies with the process when the service is killed outright.
+	private static SensorListener instance;
 
 	private final BroadcastReceiver shutdownReceiver = new ShutdownReceiver();
 	private boolean shutdownReceiverRegistered = false;
@@ -246,6 +251,30 @@ public class SensorListener extends Service implements SensorEventListener {
 	public void onCreate() {
 		Log.i("STEPPER", "SensorListener.onCreate");
 		super.onCreate();
+		instance = this;
+	}
+
+	/**
+	 * Redraws the ongoing notification from the current preferences. The goal and the localized strings only reach
+	 * the notification through SharedPreferences, so without this a change would stay invisible until the next
+	 * sensor event - which never comes while the user stands still. No-op when the service is not running.
+	 */
+	public static void refreshNotification() {
+		final SensorListener service = instance;
+		if (service == null) {
+			return;
+		}
+		// Callers run on the Cordova thread pool. Hop to the main thread, where every other showNotification call
+		// and every mutation of the step counters already happens.
+		new Handler(service.getMainLooper()).post(new Runnable() {
+			public void run() {
+				try {
+					service.showNotification();
+				} catch (Exception e) {
+					Log.e("STEPPER", "refreshNotification FAILED", e);
+				}
+			}
+		});
 	}
 
 	private int getNotificationIconId() {
@@ -273,6 +302,8 @@ public class SensorListener extends Service implements SensorEventListener {
 	@Override
 	public void onDestroy() {
 		Log.i("STEPPER", "SensorListener.onDestroy");
+		// first, so a concurrent refreshNotification cannot target a service being torn down
+		instance = null;
 		saveCurrentIndex(getApplicationContext());
 		super.onDestroy();
 		try {

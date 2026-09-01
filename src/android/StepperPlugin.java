@@ -376,6 +376,8 @@ public class StepperPlugin extends CordovaPlugin {
 		if (goalReached != null) {
 			prefs.edit().putString(Config.PEDOMETER_GOAL_REACHED_FORMAT_TEXT, goalReached).apply();
 		}
+
+		SensorListener.refreshNotification();
 	}
 
 	private void setGoal(JSONArray args) {
@@ -390,6 +392,7 @@ public class StepperPlugin extends CordovaPlugin {
 		SharedPreferences prefs = cordova.getContext().getSharedPreferences("pedometer", Context.MODE_PRIVATE);
 		if (goal >= 0) {
 			prefs.edit().putInt(Config.GOAL_PREF_INT, goal).apply();
+			SensorListener.refreshNotification();
 		}
 	}
 
@@ -601,13 +604,13 @@ public class StepperPlugin extends CordovaPlugin {
 					options.getString(Config.PEDOMETER_YOUR_PROGRESS_FORMAT_TEXT)).commit();
 		}
 
-		int goal;
-		try {
-			goal = args.getInt(0);
+		// has() rather than a plain optInt default: omitting the option must keep a goal previously set through
+		// setGoal, while passing 0 explicitly means "no goal".
+		if (options.has(Config.GOAL_OPTION_INT)) {
+			int goal = options.optInt(Config.GOAL_OPTION_INT, -1);
 			if (goal >= 0) {
 				prefs.edit().putInt(Config.GOAL_PREF_INT, goal).apply();
 			}
-		} catch (JSONException e) {
 		}
 
 		List<String> perms = new ArrayList<>();
