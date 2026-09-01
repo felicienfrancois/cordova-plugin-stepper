@@ -223,7 +223,7 @@ public class SensorListener extends Service implements SensorEventListener {
 		SharedPreferences prefs = getSharedPreferences("pedometer", Context.MODE_PRIVATE);
 		String timeZoneString = prefs.getString(Config.TIMEZONE, null);
 		if (timeZoneString != null)
-			this.timeZone = TimeZone.getTimeZone(timeZoneString);
+			timeZone = TimeZone.getTimeZone(timeZoneString);
 
 		reRegisterSensor();
 		registerBroadcastReceiver();
