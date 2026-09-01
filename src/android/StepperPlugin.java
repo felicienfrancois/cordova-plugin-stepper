@@ -524,6 +524,10 @@ public class StepperPlugin extends CordovaPlugin {
 			pendingCallbackContext = null;
 			for (int i = 0; i < grantResults.length; i++) {
 				if (grantResults[i] == PackageManager.PERMISSION_DENIED) {
+					if ("android.permission.POST_NOTIFICATIONS".equals(permissions[i])) {
+						Log.i("STEPPER", "POST_NOTIFICATIONS denied, counting without a visible notification");
+						continue;
+					}
 					String errmsg = "Permission denied ";
 					for (String perm : permissions) {
 						errmsg += " " + perm;
