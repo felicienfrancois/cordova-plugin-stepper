@@ -35,7 +35,10 @@
             <receiver android:name="org.apache.cordova.stepper.BootReceiver" android:exported="true">
                 <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <!-- Quickboot ROMs send this instead of BOOT_COMPLETED. Most of them use the HTC prefixed name, so
+                     declaring only the android.intent.action variant left those devices without a restart. -->
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
                 </intent-filter>
             </receiver>

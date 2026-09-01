@@ -19,12 +19,13 @@ public class BootReceiver extends BroadcastReceiver {
 		if (!prefs.getBoolean("enabled", false)) {
 			return;
 		}
-		if (intent.getAction().equalsIgnoreCase(Intent.ACTION_BOOT_COMPLETED)) {
-			if (Build.VERSION.SDK_INT >= 26) {
-				API26Wrapper.startForegroundService(context, new Intent(context, SensorListener.class));
-			} else {
-				context.startService(new Intent(context, SensorListener.class));
-			}
+		// No action check: the manifest filter declares BOOT_COMPLETED and QUICKBOOT_POWERON, and both mean the same
+		// thing here. Testing only for BOOT_COMPLETED left the declared quickboot action dead, so on ROMs that send
+		// it instead the service never came back after a reboot - and it also dereferenced a nullable getAction().
+		if (Build.VERSION.SDK_INT >= 26) {
+			API26Wrapper.startForegroundService(context, new Intent(context, SensorListener.class));
+		} else {
+			context.startService(new Intent(context, SensorListener.class));
 		}
 	}
 }
