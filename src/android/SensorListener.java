@@ -115,6 +115,23 @@ public class SensorListener extends Service implements SensorEventListener {
 		shutdownReceiverRegistered = true;
 	}
 
+	/**
+	 * To be called right after the database is wiped. The tracking fields are process-wide statics that outlive the
+	 * service, so without this they would keep pointing at entries that no longer exist: saveCurrentIndex would take
+	 * the updateLatestEntry branch, which no-ops on an empty table, and nothing would be persisted until the next
+	 * hour boundary.
+	 * <p/>
+	 * currentIndex is deliberately left alone. stopService is asynchronous, so onDestroy - and its saveCurrentIndex
+	 * call - runs after this; keeping the last hardware reading makes that save seed a correct zero-step baseline
+	 * entry at the current index, instead of one at index 0 that the next sensor reading would see as a huge jump.
+	 */
+	public static void onDatabaseCleared() {
+		Log.i("STEPPER", "SensorListener.onDatabaseCleared");
+		todaySavedSteps = 0;
+		lastSavedIndex = -1l;
+		lastSaveTime = 0;
+	}
+
 	public static void saveCurrentIndex(Context context) {
 		long currentTime = System.currentTimeMillis();
 		if (!Util.isSameDay(currentTime, lastSaveTime, timeZone)) {

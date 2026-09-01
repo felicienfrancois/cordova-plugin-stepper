@@ -658,6 +658,7 @@ public class StepperPlugin extends CordovaPlugin {
 			Database db = Database.getInstance(getActivity());
 			db.clear();
 			db.close();
+			SensorListener.onDatabaseCleared();
 		}
 
 		getActivity().stopService(new Intent(getActivity(), SensorListener.class));
