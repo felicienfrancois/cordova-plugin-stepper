@@ -289,6 +289,38 @@ stepper.getLastEntries(limit)
   });
 ```
 
+## Error codes [Android only]
+
+On Android, a rejection carries an object `{ code, message }`. `message` is a free-form diagnostic string — match on
+`code`, never on `message`.
+
+Three codes are actually emitted:
+
+| Code | Name | Meaning |
+| ---: | --- | --- |
+| 0 | _(unnamed)_ | Unexpected native exception. `message` carries the Java exception message |
+| 3 | `ERROR_NO_PERMISSION` | A runtime permission was denied. `message` names it, e.g. `Permission denied: android.permission.ACTIVITY_RECOGNITION`. Since 1.8.1 a denied `POST_NOTIFICATIONS` no longer produces this — counting starts anyway |
+| 6 | `ERROR_BATTERY_OPTIMIZATION` | `disableBatteryOptimizations` could not run: Android below 6.0, or the settings screen failed to open |
+
+The remaining values are internal plugin state or reserved, and are never sent to JavaScript: `STOPPED` 0,
+`STARTING` 1, `RUNNING` 2, `ERROR_NO_SENSOR_FOUND` 4, `PAUSED` 5, `ERROR_FAILED_TO_START` 7.
+
+Note that a missing step sensor is **not** an error: `isStepCountingAvailable` resolves `false` rather than
+rejecting. Call it before starting the stepper.
+
+> `ERROR_FAILED_TO_START` used to be `3`, colliding with `ERROR_NO_PERMISSION`. Only that never-emitted constant was
+> renumbered, so code `3` keeps its meaning and no consumer needs updating.
+
+On **iOS** a rejection is a plain string (the `NSError` localized description), with no code. Handle both shapes if
+your code is cross-platform:
+
+```js
+stepper.disableBatteryOptimizations().catch((err) => {
+  if (typeof err === "string") console.error(err);            // iOS
+  else console.error(err.code, err.message);                  // Android
+});
+```
+
 ## Platform and device support
 
 - Android
