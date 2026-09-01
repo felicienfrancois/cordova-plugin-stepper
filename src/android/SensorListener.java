@@ -191,10 +191,13 @@ public class SensorListener extends Service implements SensorEventListener {
 		AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
 		PendingIntent pi = PendingIntent.getService(this, taskId, new Intent(this, SensorListener.class),
 				PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+		// RTC_WAKEUP, not RTC: the alarm cuts a new hourly database entry at the next hour boundary, so it has to
+		// fire on time even while the device sleeps. A non-wakeup alarm waits for the next natural wake-up, which
+		// overnight means the midnight cut is missed and evening steps land in the same entry as morning ones.
 		if (Build.VERSION.SDK_INT >= 23) {
-			API23Wrapper.setAlarmWhileIdle(am, AlarmManager.RTC, timestamp, pi);
+			API23Wrapper.setAlarmWhileIdle(am, AlarmManager.RTC_WAKEUP, timestamp, pi);
 		} else {
-			am.set(AlarmManager.RTC, timestamp, pi);
+			am.set(AlarmManager.RTC_WAKEUP, timestamp, pi);
 		}
 	}
 
