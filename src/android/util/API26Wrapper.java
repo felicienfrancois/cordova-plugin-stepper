@@ -29,10 +29,12 @@ public class API26Wrapper {
         if (!channelCreated) {
             NotificationManager manager =
                     (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            // IMPORTANCE_MIN: no sound, no status bar icon, collapsed at the bottom of the shade. The importance is
+            // only honoured on the first createNotificationChannel call for this id - afterwards the user owns the
+            // setting, and the system accepts a lower value only while the user has not touched it.
             NotificationChannel channel =
                     new NotificationChannel(NOTIFICATION_CHANNEL_ID, NOTIFICATION_CHANNEL_ID,
-                            NotificationManager.IMPORTANCE_NONE);
-            channel.setImportance(NotificationManager.IMPORTANCE_MIN); // ignored by Android O ...
+                            NotificationManager.IMPORTANCE_MIN);
             channel.enableLights(false);
             channel.enableVibration(false);
             channel.setBypassDnd(false);
