@@ -19,6 +19,27 @@ cordova plugin add @felicienfrancois/cordova-plugin-stepper
 ```
 cordova plugin add https://github.com/@felicienfrancois/cordova-plugin-stepper
 ```
+## TypeScript
+
+Type declarations ship with the plugin in `types/index.d.ts`. The plugin clobbers the global `stepper`, so there is
+nothing to import at runtime — pull the declarations in either by adding the package to `compilerOptions.types`:
+
+```json
+{ "compilerOptions": { "types": ["@felicienfrancois/cordova-plugin-stepper"] } }
+```
+
+or by referencing it once from any file:
+
+```ts
+/// <reference types="@felicienfrancois/cordova-plugin-stepper" />
+```
+
+The interfaces are exported too, for annotating your own code:
+
+```ts
+import type { StepperUpdate, StepperEntry, StepperError } from "@felicienfrancois/cordova-plugin-stepper";
+```
+
 ## Usage
 
 #### isStepCountingAvailable () => Promise
